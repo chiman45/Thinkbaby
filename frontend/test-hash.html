@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hash Consistency Test</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+</head>
+<body>
+    <h1>Hash Consistency Test</h1>
+    <div id="result"></div>
+    
+    <script>
+        function normalizeText(text) {
+            return text
+                .toLowerCase()
+                .trim()
+                .split(/\s+/)
+                .join(' ');
+        }
+
+        function hashClaim(text) {
+            const normalized = normalizeText(text);
+            return ethers.utils.keccak256(ethers.utils.toUtf8Bytes(normalized));
+        }
+
+        const testString = "  Government   giving ₹5000   ";
+        const normalized = normalizeText(testString);
+        const hash = hashClaim(testString);
+
+        const result = `
+            <p><strong>Original:</strong> ${JSON.stringify(testString)}</p>
+            <p><strong>Normalized:</strong> ${JSON.stringify(normalized)}</p>
+            <p><strong>Hash:</strong> ${hash}</p>
+            <p><strong>Expected:</strong> 0x25861e851aae57eb5d0b0af50fd1f250176b2d934e708a2a72347f716919d96d</p>
+            <p><strong>Match:</strong> ${hash === '0x25861e851aae57eb5d0b0af50fd1f250176b2d934e708a2a72347f716919d96d' ? '✅ PASS' : '❌ FAIL'}</p>
+        `;
+        
+        document.getElementById('result').innerHTML = result;
+        console.log('Frontend hash:', hash);
+        console.log('Backend hash:', '0x25861e851aae57eb5d0b0af50fd1f250176b2d934e708a2a72347f716919d96d');
+        console.log('Match:', hash === '0x25861e851aae57eb5d0b0af50fd1f250176b2d934e708a2a72347f716919d96d');
+    </script>
+</body>
+</html>
