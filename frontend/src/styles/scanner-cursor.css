@@ -1,0 +1,204 @@
+/* Lens Cursor Styles */
+:root {
+  --cursor-indigo: #6366F1;
+  --cursor-cyan: #22D3EE;
+  --cursor-green: #10B981;
+  --cursor-red: #EF4444;
+  --cursor-amber: #F59E0B;
+}
+
+.scanner-cursor-core,
+.scanner-cursor-outer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 99999;
+  will-change: transform;
+  border-radius: 50%;
+}
+
+/* ── Main Lens Ring (28px) ── */
+.scanner-cursor-core {
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid transparent;
+  background-image: linear-gradient(hsl(222 47% 7%), hsl(222 47% 7%)),
+                    linear-gradient(135deg, var(--cursor-indigo), var(--cursor-cyan));
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 0 16px -4px var(--glow, var(--cursor-indigo)),
+              inset 0 0 10px -6px var(--glow, var(--cursor-indigo));
+  transition: width 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+              height 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.3s ease,
+              background-image 0.3s ease;
+  animation: lens-breathe 3s ease-in-out infinite;
+}
+
+/* State gradient overrides */
+.scanner-cursor-core.scanner-state-clickable,
+.scanner-cursor-core.scanner-state-button {
+  background-image: linear-gradient(hsl(222 47% 7%), hsl(222 47% 7%)),
+                    linear-gradient(135deg, var(--cursor-cyan), var(--cursor-indigo));
+  box-shadow: 0 0 20px -4px var(--cursor-cyan),
+              inset 0 0 12px -6px var(--cursor-cyan);
+}
+
+.scanner-cursor-core.scanner-state-success {
+  background-image: linear-gradient(hsl(222 47% 7%), hsl(222 47% 7%)),
+                    linear-gradient(135deg, var(--cursor-green), #34d399);
+  box-shadow: 0 0 20px -4px var(--cursor-green),
+              inset 0 0 12px -6px var(--cursor-green);
+}
+
+.scanner-cursor-core.scanner-state-danger {
+  background-image: linear-gradient(hsl(222 47% 7%), hsl(222 47% 7%)),
+                    linear-gradient(135deg, var(--cursor-red), #f87171);
+  box-shadow: 0 0 20px -4px var(--cursor-red),
+              inset 0 0 12px -6px var(--cursor-red);
+}
+
+.scanner-cursor-core.scanner-state-warning {
+  background-image: linear-gradient(hsl(222 47% 7%), hsl(222 47% 7%)),
+                    linear-gradient(135deg, var(--cursor-amber), #fbbf24);
+  box-shadow: 0 0 20px -4px var(--cursor-amber),
+              inset 0 0 12px -6px var(--cursor-amber);
+  animation: lens-breathe 3s ease-in-out infinite, lens-amber-pulse 1.5s ease-in-out infinite;
+}
+
+/* Expanded on hover */
+.scanner-cursor-core.scanner-expanded {
+  width: 26px;
+  height: 26px;
+}
+
+/* Text hover */
+.scanner-cursor-core.scanner-state-text {
+  width: 28px;
+  height: 28px;
+}
+
+/* Heading hover – intensified glow */
+.scanner-cursor-core.scanner-state-heading {
+  width: 30px;
+  height: 30px;
+  box-shadow: 0 0 28px -4px var(--glow, var(--cursor-indigo)),
+              inset 0 0 16px -6px var(--glow, var(--cursor-indigo));
+}
+
+/* Click compression */
+.scanner-cursor-core.cursor-click {
+  width: 18px !important;
+  height: 18px !important;
+  transition: width 0.08s ease, height 0.08s ease;
+  box-shadow: 0 0 32px -2px var(--glow, var(--cursor-indigo));
+}
+
+/* ── Core Dot (6px) ── */
+.scanner-cursor-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  position: absolute;
+  background: var(--glow, var(--cursor-indigo));
+  box-shadow: 0 0 8px 2px var(--glow, var(--cursor-indigo));
+  z-index: 2;
+  transition: transform 0.25s ease, background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.scanner-expanded .scanner-cursor-dot {
+  transform: scale(1.3);
+}
+
+/* ── Outer Reactive Ring (42px) ── */
+.scanner-cursor-outer {
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  background: conic-gradient(
+    from var(--outer-rotation, 0deg),
+    transparent 0deg,
+    transparent 260deg,
+    rgba(99, 102, 241, 0.2) 300deg,
+    rgba(34, 211, 238, 0.15) 330deg,
+    transparent 360deg
+  );
+  transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+              height 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.3s ease,
+              opacity 0.3s ease;
+  animation: outer-rotate 3s linear infinite;
+  opacity: 0.7;
+}
+
+/* Faster rotation on hover */
+.scanner-cursor-outer.outer-fast {
+  animation: outer-rotate 1.5s linear infinite;
+  opacity: 1;
+  border-color: rgba(34, 211, 238, 0.25);
+}
+
+/* ── Glass effect ── */
+.scanner-cursor-glass {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(4px);
+}
+
+/* ── SCAN label ── */
+.scanner-cursor-label {
+  position: absolute;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 5px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--glow, var(--cursor-cyan));
+  bottom: 5px;
+  transition: opacity 0.2s ease;
+  z-index: 3;
+  text-shadow: 0 0 6px var(--glow, var(--cursor-cyan));
+}
+
+/* ── Click ripple ── */
+.scanner-cursor-ripple {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 1.5px solid transparent;
+  opacity: 0;
+  transform: scale(0.8);
+}
+
+.scanner-cursor-ripple.cursor-ripple-active {
+  animation: ripple-burst 0.4s ease-out forwards;
+}
+
+/* ── Animations ── */
+@keyframes lens-breathe {
+  0%, 100% { opacity: 0.92; }
+  50% { opacity: 1; }
+}
+
+@keyframes lens-amber-pulse {
+  0%, 100% { box-shadow: 0 0 20px -4px var(--cursor-amber); }
+  50% { box-shadow: 0 0 28px -2px var(--cursor-amber); }
+}
+
+@keyframes outer-rotate {
+  from { transform: var(--base-transform, translate(-100px, -100px) translate(-50%, -50%)) rotate(0deg); }
+  to { transform: var(--base-transform, translate(-100px, -100px) translate(-50%, -50%)) rotate(360deg); }
+}
+
+@keyframes ripple-burst {
+  0% { opacity: 0.7; transform: scale(0.9); }
+  50% { opacity: 0.3; }
+  100% { opacity: 0; transform: scale(2); }
+}

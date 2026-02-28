@@ -6,14 +6,15 @@ import ai_connector
 import ipfs
 from utils import hash_claim
 from service_layer import generate_snapshot_hash
+import event_indexer
 import time
 
 
 router = APIRouter()
 
 
-# In-memory storage for feed (hackathon mode)
-# Maps claimHash -> claim metadata
+# In-memory storage for IPFS CIDs (backward compatibility)
+# Maps claimHash -> CID and metadata
 claim_registry = {}
 
 
@@ -104,6 +105,9 @@ async def register_claim_content(request: RegisterClaimRequest):
         "blockNumber": block_number,
         "timestamp": int(time.time())
     }
+    
+    # Refresh event cache to include new claim
+    event_indexer.index_claims_from_events(force_refresh=True)
     
     return {
         "claimHash": claim_hash,
@@ -216,42 +220,46 @@ async def analyze_claim_endpoint(request: AnalyzeRequest):
 @router.get("/feed")
 async def get_feed():
     """
-    Get all registered claims for feed display.
-    Returns list of claims with raw vote counts only.
-    No AI calls, no IPFS fetch, no credibility computation.
+    Get all registered claims for feed display using event indexing.
+    Returns list of claims with raw vote counts and Reddit-style scores.
+    No AI calls, no IPFS fetch (except for content if available).
     """
+    # Get indexed claims from blockchain events
+    indexed_claims = event_indexer.get_cached_claims()
+    
     feed_items = []
     
-    for claim_hash, metadata in claim_registry.items():
-        try:
-            # Get current vote counts from blockchain
-            user_votes = contract_wrapper.get_votes(claim_hash)
-            validator_votes = contract_wrapper.get_validator_votes(claim_hash)
-            
-            feed_items.append({
-                "claimHash": claim_hash,
-                "contentCID": metadata["contentCID"],
-                "claimSubmitter": metadata["claimSubmitter"],
-                "timestamp": metadata["timestamp"],
-                "blockNumber": metadata["blockNumber"],
-                "userTrueVotes": user_votes["true_votes"],
-                "userFalseVotes": user_votes["false_votes"],
-                "validatorTrueVotes": validator_votes["true_votes"],
-                "validatorFalseVotes": validator_votes["false_votes"]
-            })
-        except Exception as e:
-            # Log error and skip this claim - do not crash entire feed
-            print(f"ERROR: Failed to fetch votes for claim {claim_hash}: {str(e)}")
-            continue
-    
-    # Sort by timestamp descending (newest first)
-    feed_items.sort(key=lambda x: x["timestamp"], reverse=True)
+    for claim in indexed_claims:
+        claim_hash = claim['claimHash']
+        
+        # Get IPFS CID if available
+        content_cid = None
+        timestamp = None
+        if claim_hash in claim_registry:
+            content_cid = claim_registry[claim_hash].get('contentCID')
+            timestamp = claim_registry[claim_hash].get('timestamp')
+        
+        # If no timestamp from registry, use current time
+        if timestamp is None:
+            timestamp = int(time.time())
+        
+        feed_items.append({
+            "claimHash": claim_hash,
+            "contentCID": content_cid,
+            "claimSubmitter": claim['submitter'],
+            "timestamp": timestamp,
+            "blockNumber": claim['blockNumber'],
+            "userTrueVotes": claim['userTrueVotes'],
+            "userFalseVotes": claim['userFalseVotes'],
+            "validatorTrueVotes": claim['validatorTrueVotes'],
+            "validatorFalseVotes": claim['validatorFalseVotes'],
+            "score": claim['score']
+        })
     
     return {
         "claims": feed_items,
         "total": len(feed_items)
     }
-
 
 
 @router.get("/claims/{claim_hash}/detail")
@@ -276,10 +284,11 @@ async def get_claim_detail(claim_hash: str, caller_address: Optional[str] = None
             detail="Invalid hash format. Hash must contain only hexadecimal characters."
         )
     
-    # Check if claim exists on-chain
+    # Check if claim exists on-chain FIRST
     exists = contract_wrapper.claim_exists(claim_hash)
     
     if not exists:
+        print(f"⚠️  Claim does not exist on-chain: {claim_hash}")
         raise HTTPException(
             status_code=404,
             detail="Claim not found on blockchain"
@@ -305,7 +314,8 @@ async def get_claim_detail(claim_hash: str, caller_address: Optional[str] = None
             detail=f"Failed to fetch content from IPFS: {str(e)}"
         )
     
-    # Get vote data using wrapper
+    # Get vote data using wrapper (safe because we checked exists)
+    print(f"✅ Fetching votes for existing claim: {claim_hash}")
     user_votes = contract_wrapper.get_votes(claim_hash)
     validator_votes = contract_wrapper.get_validator_votes(claim_hash)
     
@@ -314,8 +324,13 @@ async def get_claim_detail(claim_hash: str, caller_address: Optional[str] = None
     has_voted = False
     
     if caller_address:
-        caller_role = contract_wrapper.get_role(caller_address)
-        has_voted = contract_wrapper.has_address_voted(claim_hash, caller_address)
+        try:
+            caller_role = contract_wrapper.get_role(caller_address)
+            has_voted = contract_wrapper.has_address_voted(claim_hash, caller_address)
+        except Exception as e:
+            print(f"⚠️  Failed to get caller role: {str(e)}")
+            caller_role = 0
+            has_voted = False
     
     return {
         "claimHash": claim_hash,

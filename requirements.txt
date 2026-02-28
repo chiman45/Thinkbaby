@@ -1,0 +1,109 @@
+# ============================================================
+# TRUTH PROTOCOL - REQUIREMENTS
+# Decentralized Fake News Verification System
+# ============================================================
+
+# ============================================================
+# BACKEND DEPENDENCIES (Python)
+# ============================================================
+# Location: backend/
+# Install: cd backend && pip install -r requirements.txt
+
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# Blockchain
+web3==6.15.1
+
+# Configuration
+python-dotenv==1.0.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# HTTP Client
+httpx==0.26.0
+
+# ============================================================
+# FRONTEND DEPENDENCIES (Node.js)
+# ============================================================
+# Location: frontend/
+# Install: cd frontend && npm install
+
+# Core Framework
+# - React 18.3.1
+# - TypeScript 5.6.2
+# - Vite 5.4.2
+
+# Blockchain
+# - ethers 6.13.0
+
+# UI Components
+# - @radix-ui/* (various components)
+# - tailwindcss 3.4.1
+# - framer-motion 11.11.17
+
+# State Management
+# - @tanstack/react-query 5.62.7
+
+# Routing
+# - react-router-dom 6.28.0
+
+# Utilities
+# - clsx 2.1.1
+# - sonner (toast notifications)
+
+# See frontend/package.json for complete list
+
+# ============================================================
+# INSTALLATION INSTRUCTIONS
+# ============================================================
+
+# Backend:
+# 1. cd backend
+# 2. python -m venv venv
+# 3. source venv/bin/activate  (Windows: venv\Scripts\activate)
+# 4. pip install -r requirements.txt
+# 5. Copy .env.example to .env and configure
+# 6. uvicorn main:app --reload
+
+# Frontend:
+# 1. cd frontend
+# 2. npm install
+# 3. Copy .env.local.example to .env.local and configure
+# 4. npm run dev
+
+# ============================================================
+# ENVIRONMENT VARIABLES
+# ============================================================
+
+# Backend (.env):
+# - SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/YOUR_KEY
+# - CONTRACT_ADDRESS=0x...
+# - BACKEND_PRIVATE_KEY=0x...
+# - AI_SERVICE_URL=http://localhost:8001/analyze
+# - PINATA_API_KEY=...
+# - PINATA_SECRET_KEY=...
+# - CORS_ORIGINS=http://localhost:8080,http://localhost:8081,http://localhost:3000
+
+# Frontend (.env.local):
+# - VITE_API_URL=http://localhost:8000
+# - VITE_CONTRACT_ADDRESS=0x...
+
+# ============================================================
+# SYSTEM REQUIREMENTS
+# ============================================================
+
+# Backend:
+# - Python 3.11+
+# - pip
+
+# Frontend:
+# - Node.js 18+
+# - npm or yarn
+
+# Blockchain:
+# - MetaMask browser extension
+# - Sepolia testnet ETH
+
+# ============================================================

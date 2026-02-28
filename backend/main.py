@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from routes import router
 import contract_wrapper
+import event_indexer
 
 
 app = FastAPI(
@@ -36,7 +37,7 @@ async def startup():
     # Print configuration
     print(f"\n📋 Configuration:")
     print(f"   RPC URL: {settings.sepolia_rpc_url[:50]}...")
-    print(f"   Contract: {settings.contract_address}")
+    print(f"   BACKEND CONTRACT: {settings.contract_address}")
     
     # Check Web3 connection
     try:
@@ -91,6 +92,11 @@ async def startup():
         print("\n" + "="*60)
         print("✅ BACKEND READY FOR SEPOLIA TRANSACTIONS")
         print("="*60 + "\n")
+        
+        # Index claims from blockchain events
+        print("🔄 Indexing claims from blockchain...")
+        event_indexer.index_claims_from_events(force_refresh=True)
+        print("✅ Event indexing complete\n")
         
     except Exception as e:
         print(f"\n❌ STARTUP FAILED: {str(e)}")

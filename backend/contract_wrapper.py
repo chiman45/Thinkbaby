@@ -57,53 +57,74 @@ def get_votes(claim_hash: str) -> dict:
 
 def get_validator_votes(claim_hash: str) -> dict:
     """
-    Get validator-only vote counts.
-    For hackathon: same as total votes (no separate validator tracking).
+    Get validator-only vote counts from contract.
     """
-    return get_votes(claim_hash)
+    hash_bytes = hash_to_bytes32(claim_hash)
+    block_number = w3.eth.block_number
+    
+    if not claim_exists(claim_hash):
+        return {
+            "true_votes": 0,
+            "false_votes": 0,
+            "block_number": block_number
+        }
+    
+    validator_true, validator_false = contract.functions.getValidatorVotes(hash_bytes).call()
+    
+    return {
+        "true_votes": int(validator_true),
+        "false_votes": int(validator_false),
+        "block_number": block_number
+    }
 
 
-def get_role(wallet_address: str) -> str:
+def get_role(wallet_address: str) -> int:
     """
-    Get role of wallet address.
-    For hackathon: returns 'user' (no role system in contract).
+    Get role of wallet address from contract.
+    Returns: 0 = None, 1 = User, 2 = Validator
     """
-    return "user"
+    checksum_address = Web3.to_checksum_address(wallet_address)
+    role = contract.functions.getRole(checksum_address).call()
+    return int(role)
 
 
 def has_address_voted(claim_hash: str, voter_address: str) -> bool:
     """
     Check if address has voted on claim.
-    For hackathon: not implemented in contract, returns False.
     """
-    return False
+    hash_bytes = hash_to_bytes32(claim_hash)
+    checksum_address = Web3.to_checksum_address(voter_address)
+    return contract.functions.hasAddressVoted(hash_bytes, checksum_address).call()
 
 
 def get_claim_submitter(claim_hash: str) -> str:
     """
-    Get address that submitted claim.
-    For hackathon: returns backend wallet (all claims registered by backend).
-    """
-    return account.address
-
-
-def register_claim_tx(claim_hash: str) -> str:
-    """
-    Register claim on blockchain (backend-controlled mode only).
-    Returns transaction hash immediately.
+    Get address that submitted claim from contract.
     """
     hash_bytes = hash_to_bytes32(claim_hash)
-    nonce = w3.eth.get_transaction_count(account.address, 'pending')
+    submitter = contract.functions.getClaimSubmitter(hash_bytes).call()
+    return submitter
+
+
+def get_claim_registered_events(from_block=0, to_block='latest'):
+    """
+    Query all ClaimRegistered events from blockchain.
+    Returns list of decoded events with claimHash and submitter.
+    """
+    event_filter = contract.events.ClaimRegistered.create_filter(
+        fromBlock=from_block,
+        toBlock=to_block
+    )
     
-    txn = contract.functions.registerClaim(hash_bytes).build_transaction({
-        'from': account.address,
-        'nonce': nonce,
-        'gas': 150000,
-        'gasPrice': w3.eth.gas_price,
-        'chainId': 11155111
-    })
+    events = event_filter.get_all_entries()
     
-    signed_txn = account.sign_transaction(txn)
-    tx_hash = w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+    decoded_events = []
+    for event in events:
+        decoded_events.append({
+            'claimHash': '0x' + event['args']['claimHash'].hex(),
+            'submitter': event['args']['submitter'],
+            'blockNumber': event['blockNumber'],
+            'transactionHash': event['transactionHash'].hex()
+        })
     
-    return tx_hash.hex()
+    return decoded_events
