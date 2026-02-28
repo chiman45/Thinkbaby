@@ -1,0 +1,36 @@
+# ThinkBaby - Python Dependencies
+# AI + Bot + IVR Layer for Web3 Fake News Verification
+
+# Core Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Twilio SDK
+twilio==8.12.0
+
+# HTTP Client
+requests==2.31.0
+httpx==0.26.0
+
+# Blockchain/Crypto (for keccak256 hashing)
+web3==6.15.1
+eth-hash[pycryptodome]==0.6.0
+
+# Environment Management
+python-dotenv==1.0.0
+
+# Data Validation
+pydantic==2.5.3
+
+# Optional: AI Integration
+# openai==1.10.0
+# google-generativeai==0.3.2
+
+# Optional: Database
+# pymongo==4.6.1
+# redis==5.0.1
+
+# Development
+pytest==7.4.4
+pytest-asyncio==0.23.3
