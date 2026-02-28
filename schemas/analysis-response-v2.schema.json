@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://thinkbaby.local/schemas/analysis-response-v2.schema.json",
+  "title": "Analyze Claim Response (V2 Contract)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "originalMessage",
+    "claims",
+    "overallStatus",
+    "timestamp",
+    "snapshot"
+  ],
+  "properties": {
+    "originalMessage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claimText",
+          "claimHash",
+          "aiRiskScore",
+          "aiConfidence",
+          "explanation",
+          "blockchain"
+        ],
+        "properties": {
+          "claimText": {
+            "type": "string",
+            "minLength": 1
+          },
+          "claimHash": {
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{64}$"
+          },
+          "aiRiskScore": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "aiConfidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "explanation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "blockchain": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "contractVersion",
+              "contractAddress",
+              "blockNumber",
+              "existsOnChain",
+              "submitter",
+              "submitterRole",
+              "trueVotes",
+              "falseVotes",
+              "validatorTrueVotes",
+              "validatorFalseVotes",
+              "credibilityScore",
+              "finalStatus"
+            ],
+            "properties": {
+              "contractVersion": {
+                "type": "string",
+                "enum": [
+                  "V2"
+                ]
+              },
+              "contractAddress": {
+                "type": "string",
+                "pattern": "^0x[a-fA-F0-9]{40}$"
+              },
+              "blockNumber": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "existsOnChain": {
+                "type": "boolean"
+              },
+              "submitter": {
+                "type": "string",
+                "pattern": "^0x[a-fA-F0-9]{40}$"
+              },
+              "submitterRole": {
+                "type": "string",
+                "enum": [
+                  "NONE",
+                  "USER",
+                  "VALIDATOR"
+                ]
+              },
+              "trueVotes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "falseVotes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "validatorTrueVotes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "validatorFalseVotes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "credibilityScore": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "finalStatus": {
+                "type": "string",
+                "enum": [
+                  "TRUE",
+                  "FALSE",
+                  "UNCERTAIN",
+                  "UNVERIFIED"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "overallStatus": {
+      "type": "string",
+      "enum": [
+        "TRUE",
+        "FALSE",
+        "UNCERTAIN",
+        "UNVERIFIED"
+      ]
+    },
+    "timestamp": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "snapshotHash",
+        "ipfsCid",
+        "ipfsPinned"
+      ],
+      "properties": {
+        "snapshotHash": {
+          "type": "string",
+          "pattern": "^0x[a-fA-F0-9]{64}$"
+        },
+        "ipfsCid": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "ipfsPinned": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
