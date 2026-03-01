@@ -128,3 +128,5 @@ desktop.ini
 
 echo chroma_db/ >> .gitignore
 echo rti_filings.json >> .gitignore
+
+chroma_db/
