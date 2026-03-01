@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, validator
 from typing import Optional
 import contract_wrapper
@@ -46,9 +46,183 @@ class RegisterClaimRequest(BaseModel):
         return v
 
 
+class RegisterClaimFullRequest(BaseModel):
+    newsContent: str
+    submitterAddress: str
+    
+    @validator('newsContent')
+    def validate_content(cls, v):
+        stripped = v.strip()
+        if len(stripped) < 10:
+            raise ValueError("Content must be at least 10 characters")
+        if len(v) > 10000:
+            raise ValueError("Content too long (max 10,000 characters)")
+        return v
+
+
 class AnalyzeRequest(BaseModel):
     claimHash: str
     callerAddress: Optional[str] = None
+
+
+@router.post("/claims/register")
+async def register_claim_full(raw_request: Request):
+    """
+    Backend-orchestrated claim registration.
+    This endpoint:
+    1. Generates claim hash
+    2. Registers on blockchain via backend wallet
+    3. Stores content in IPFS
+    4. Returns claim hash
+    
+    This ensures atomic consistency between blockchain and backend.
+    """
+    from utils import hash_claim
+    
+    # TEMP: Log raw body for debugging
+    raw_body = await raw_request.json()
+    print(f"\n{'='*60}")
+    print(f"🔍 RAW BODY RECEIVED:")
+    print(f"{'='*60}")
+    print(f"Body: {raw_body}")
+    print(f"Keys: {list(raw_body.keys())}")
+    print(f"{'='*60}\n")
+    
+    # Validate against Pydantic model
+    try:
+        request = RegisterClaimFullRequest(**raw_body)
+    except Exception as e:
+        print(f"❌ Pydantic validation failed: {str(e)}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid request body: {str(e)}"
+        )
+    
+    # Step 1: Generate claim hash
+    claim_hash = hash_claim(request.newsContent)
+    
+    print(f"\n{'='*60}")
+    print(f"🔄 BACKEND-ORCHESTRATED REGISTRATION")
+    print(f"{'='*60}")
+    print(f"📝 Generated hash: {claim_hash}")
+    print(f"👤 Submitter: {request.submitterAddress}")
+    print(f"📄 Content length: {len(request.newsContent)} chars")
+    
+    # Step 2: Check if already exists
+    if contract_wrapper.claim_exists(claim_hash):
+        print(f"⚠️  Claim already exists on-chain")
+        
+        # Check if in registry
+        if claim_hash in claim_registry:
+            existing = claim_registry[claim_hash]
+            print(f"✅ Found in registry")
+            print(f"   CID: {existing['contentCID']}")
+            print(f"   Block: {existing['blockNumber']}")
+            print(f"{'='*60}\n")
+            return {
+                "claimHash": claim_hash,
+                "contentCID": existing["contentCID"],
+                "blockNumber": existing["blockNumber"],
+                "claimSubmitter": existing["claimSubmitter"],
+                "alreadyExists": True
+            }
+        else:
+            print(f"❌ Exists on-chain but NOT in registry - DESYNC DETECTED")
+            print(f"{'='*60}\n")
+            raise HTTPException(
+                status_code=400,
+                detail="Claim exists on-chain but not in backend registry"
+            )
+    
+    # Step 3: Register on blockchain (backend wallet signs)
+    print(f"📝 Registering on blockchain...")
+    try:
+        hash_bytes = contract_wrapper.hash_to_bytes32(claim_hash)
+        
+        # Build transaction
+        tx = contract_wrapper.contract.functions.registerClaim(hash_bytes).build_transaction({
+            'from': contract_wrapper.account.address,
+            'nonce': contract_wrapper.w3.eth.get_transaction_count(contract_wrapper.account.address),
+            'gas': 200000,
+            'gasPrice': contract_wrapper.w3.eth.gas_price
+        })
+        
+        # Sign transaction
+        signed_tx = contract_wrapper.account.sign_transaction(tx)
+        
+        # Send transaction
+        tx_hash = contract_wrapper.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+        
+        print(f"   Transaction sent: {tx_hash.hex()}")
+        
+        # Wait for confirmation
+        receipt = contract_wrapper.w3.eth.wait_for_transaction_receipt(tx_hash)
+        
+        if receipt['status'] != 1:
+            print(f"❌ Transaction failed")
+            print(f"{'='*60}\n")
+            raise HTTPException(
+                status_code=500,
+                detail="Blockchain transaction failed"
+            )
+        
+        print(f"✅ Blockchain registration success")
+        print(f"   Block: {receipt['blockNumber']}")
+        print(f"   Gas used: {receipt['gasUsed']}")
+        block_number = receipt['blockNumber']
+        
+    except Exception as e:
+        print(f"❌ Blockchain registration failed: {str(e)}")
+        print(f"{'='*60}\n")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Blockchain registration failed: {str(e)}"
+        )
+    
+    # Step 4: Upload to IPFS
+    print(f"📤 Uploading to IPFS...")
+    try:
+        claim_content = {
+            "claimHash": claim_hash,
+            "newsContent": request.newsContent,
+            "submitter": request.submitterAddress,
+            "timestamp": int(time.time())
+        }
+        
+        content_cid = await ipfs.upload_to_pinata(claim_content)
+        print(f"✅ IPFS upload complete: {content_cid}")
+        
+    except Exception as e:
+        print(f"⚠️  IPFS upload failed (non-blocking): {str(e)}")
+        content_cid = None
+    
+    # Step 5: Store in registry
+    print(f"💾 Storing in registry...")
+    claim_registry[claim_hash] = {
+        "claimHash": claim_hash,
+        "contentCID": content_cid,
+        "claimSubmitter": request.submitterAddress,
+        "blockNumber": block_number,
+        "timestamp": int(time.time())
+    }
+    print(f"✅ Stored in registry")
+    
+    # Step 6: Refresh event cache
+    print(f"🔄 Refreshing event cache...")
+    event_indexer.index_claims_from_events(force_refresh=True)
+    print(f"✅ Event cache refreshed")
+    
+    print(f"✅ Registration complete")
+    print(f"📤 Returned to frontend: {claim_hash}")
+    print(f"{'='*60}\n")
+    
+    return {
+        "claimHash": claim_hash,
+        "contentCID": content_cid,
+        "blockNumber": block_number,
+        "claimSubmitter": request.submitterAddress,
+        "alreadyExists": False
+    }
 
 
 @router.post("/claims/register-content")
@@ -268,6 +442,9 @@ async def get_claim_detail(claim_hash: str, caller_address: Optional[str] = None
     Get claim detail page data WITHOUT running AI.
     Returns claim text and raw vote counts only.
     AI analysis must be triggered separately via POST /analyze-claim.
+    
+    FALLBACK SYNC: If claim not in registry but exists on-chain,
+    creates minimal registry entry to prevent permanent desync.
     """
     # Validate hash format
     if not claim_hash.startswith('0x') or len(claim_hash) != 66:
@@ -294,25 +471,85 @@ async def get_claim_detail(claim_hash: str, caller_address: Optional[str] = None
             detail="Claim not found on blockchain"
         )
     
-    # Get claim content from registry
-    if claim_hash not in claim_registry:
-        raise HTTPException(
-            status_code=404,
-            detail="Claim content not found. Content must be registered via /claims/register-content"
-        )
+    print(f"✅ Claim exists on-chain: {claim_hash}")
     
+    # Check if in registry
+    if claim_hash not in claim_registry:
+        print(f"⚠️  DESYNC DETECTED: Claim on-chain but not in registry")
+        print(f"🔄 Attempting fallback sync...")
+        
+        # FALLBACK SYNC: Create minimal registry entry
+        try:
+            # Get submitter from contract
+            submitter = contract_wrapper.get_claim_submitter(claim_hash)
+            votes = contract_wrapper.get_votes(claim_hash)
+            
+            print(f"   Submitter: {submitter}")
+            print(f"   Block: {votes['block_number']}")
+            
+            # Create minimal entry (no content, no CID)
+            claim_registry[claim_hash] = {
+                "claimHash": claim_hash,
+                "contentCID": None,
+                "claimSubmitter": submitter,
+                "blockNumber": votes['block_number'],
+                "timestamp": int(time.time())
+            }
+            
+            print(f"✅ Fallback sync complete - minimal entry created")
+            
+            # Return minimal data
+            user_votes = contract_wrapper.get_votes(claim_hash)
+            validator_votes = contract_wrapper.get_validator_votes(claim_hash)
+            
+            # Get role metadata if caller provided
+            caller_role = None
+            has_voted = False
+            
+            if caller_address:
+                try:
+                    caller_role = contract_wrapper.get_role(caller_address)
+                    has_voted = contract_wrapper.has_address_voted(claim_hash, caller_address)
+                except Exception as e:
+                    print(f"⚠️  Failed to get caller role: {str(e)}")
+                    caller_role = 0
+                    has_voted = False
+            
+            return {
+                "claimHash": claim_hash,
+                "newsContent": "[Content not available - claim registered externally]",
+                "contentCID": None,
+                "claimSubmitter": submitter,
+                "timestamp": int(time.time()),
+                "blockNumber": votes['block_number'],
+                "userTrueVotes": user_votes["true_votes"],
+                "userFalseVotes": user_votes["false_votes"],
+                "validatorTrueVotes": validator_votes["true_votes"],
+                "validatorFalseVotes": validator_votes["false_votes"],
+                "callerRole": caller_role,
+                "hasVoted": has_voted
+            }
+            
+        except Exception as e:
+            print(f"❌ Fallback sync failed: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Claim exists on-chain but backend sync failed: {str(e)}"
+            )
+    
+    # Normal flow: claim in registry
     claim_metadata = claim_registry[claim_hash]
     content_cid = claim_metadata["contentCID"]
     
-    # Fetch claim text from IPFS
-    try:
-        claim_content = await ipfs.fetch_from_pinata(content_cid)
-        news_content = claim_content.get("newsContent", "")
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch content from IPFS: {str(e)}"
-        )
+    # Fetch claim text from IPFS if available
+    news_content = "[Content not available]"
+    if content_cid:
+        try:
+            claim_content = await ipfs.fetch_from_pinata(content_cid)
+            news_content = claim_content.get("newsContent", "[Content not available]")
+        except Exception as e:
+            print(f"⚠️  Failed to fetch content from IPFS: {str(e)}")
+            news_content = "[Content not available - IPFS fetch failed]"
     
     # Get vote data using wrapper (safe because we checked exists)
     print(f"✅ Fetching votes for existing claim: {claim_hash}")

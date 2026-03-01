@@ -89,6 +89,52 @@ async def startup():
         except Exception as e:
             print(f"   Status: ⚠️  Contract call failed: {str(e)[:50]}")
         
+        # Check and register backend wallet role
+        print(f"\n🔐 Backend Wallet Role Check:")
+        print(f"   Wallet: {wallet_address}")
+        
+        try:
+            backend_role = contract_wrapper.contract.functions.getRole(wallet_address).call()
+            print(f"   Current Role: {backend_role} (0=None, 1=User, 2=Validator)")
+            
+            if backend_role == 0:
+                print(f"\n⚠️  Backend wallet not registered. Auto-registering as User...")
+                
+                # Build transaction
+                tx = contract_wrapper.contract.functions.registerAsUser().build_transaction({
+                    'from': wallet_address,
+                    'nonce': contract_wrapper.w3.eth.get_transaction_count(wallet_address),
+                    'gas': 300000,
+                    'gasPrice': contract_wrapper.w3.eth.gas_price
+                })
+                
+                # Sign transaction
+                signed_tx = contract_wrapper.account.sign_transaction(tx)
+                
+                # Send transaction
+                tx_hash = contract_wrapper.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+                print(f"   Transaction sent: {tx_hash.hex()}")
+                
+                # Wait for confirmation
+                receipt = contract_wrapper.w3.eth.wait_for_transaction_receipt(tx_hash)
+                
+                if receipt['status'] == 1:
+                    print(f"   ✅ Backend wallet registered as User")
+                    print(f"   Block: {receipt['blockNumber']}")
+                    print(f"   Gas used: {receipt['gasUsed']}")
+                else:
+                    print(f"   ❌ Registration transaction failed")
+                    raise Exception("Backend wallet registration failed")
+            else:
+                print(f"   ✅ Backend wallet already registered")
+            
+            print(f"   ✅ Backend wallet ready for claim registration")
+            
+        except Exception as e:
+            print(f"   ❌ Role check/registration failed: {str(e)}")
+            print(f"\n⚠️  WARNING: Backend wallet may not be able to register claims")
+            print(f"   Manual registration may be required")
+        
         print("\n" + "="*60)
         print("✅ BACKEND READY FOR SEPOLIA TRANSACTIONS")
         print("="*60 + "\n")

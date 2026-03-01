@@ -72,7 +72,7 @@ const CheckNews = () => {
 
     setRegistering(true);
     try {
-      // Step 1: Check role BEFORE attempting transaction
+      // Step 1: Check role BEFORE attempting registration
       const readContract = new Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
       
       console.log("🔍 Checking role before registration...");
@@ -115,28 +115,42 @@ const CheckNews = () => {
       
       console.log("✅ Claim does not exist - proceeding with registration");
 
-      // Step 3: Register on-chain via wallet
-      const writeContract = new Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+      // Step 3: Backend-orchestrated registration
+      toast.info("Registering claim via backend...");
+      console.log("============================================================");
+      console.log("📤 FRONTEND: Sending registration request to backend");
+      console.log("============================================================");
+      
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/claims/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          newsContent: newsText,
+          submitterAddress: walletAddress
+        }),
+      });
 
-      toast.info("Submitting transaction to blockchain...");
-      const tx = await writeContract.registerClaim(claimHash);
-      
-      console.log("📝 Transaction sent:", tx.hash);
-      
-      toast.info("Waiting for confirmation...");
-      await tx.wait();
-      
-      console.log("✅ Transaction confirmed");
-      toast.success("Claim registered on-chain!");
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Registration failed');
+      }
 
-      // Step 4: Register content with backend
-      toast.info("Uploading content to IPFS...");
-      await api.registerContent(claimHash, newsText, walletAddress);
+      const data = await response.json();
       
-      toast.success("Content uploaded to IPFS!");
+      console.log("✅ FRONTEND: Registration complete");
+      console.log("📥 Using claimHash from backend:", data.claimHash);
+      console.log("   Block:", data.blockNumber);
+      console.log("   CID:", data.contentCID);
+      console.log("   Already existed:", data.alreadyExists);
+      console.log("============================================================");
       
-      // Navigate to claim detail page
-      setTimeout(() => navigate(`/claim/${claimHash}`), 1500);
+      toast.success("Claim registered successfully!");
+      
+      // Navigate to claim detail page using hash from backend
+      console.log("🔀 Redirecting to:", `/claim/${data.claimHash}`);
+      setTimeout(() => navigate(`/claim/${data.claimHash}`), 1500);
     } catch (error: any) {
       console.error("❌ Registration error:", error);
       toast.error(error.message || "Registration failed");
