@@ -13,8 +13,8 @@ import time
 router = APIRouter()
 
 
-# In-memory storage for IPFS CIDs (backward compatibility)
-# Maps claimHash -> CID and metadata
+# In-memory storage for IPFS CIDs and claim content (backward compatibility)
+# Maps claimHash -> CID, metadata, and ORIGINAL CONTENT
 claim_registry = {}
 
 
@@ -63,6 +63,106 @@ class RegisterClaimFullRequest(BaseModel):
 class AnalyzeRequest(BaseModel):
     claimHash: str
     callerAddress: Optional[str] = None
+
+
+class AIAnalysisRequest(BaseModel):
+    content: str
+    
+    @validator('content')
+    def validate_content(cls, v):
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Content cannot be empty")
+        if len(v) > 10000:
+            raise ValueError("Content too long (max 10,000 characters)")
+        return v
+
+
+@router.post("/api/ai-analysis")
+async def ai_analysis_endpoint(request: AIAnalysisRequest):
+    """
+    Standalone AI analysis endpoint.
+    Accepts content and returns Credibility Engine analysis.
+    
+    This endpoint does NOT require blockchain interaction.
+    It's a direct pass-through to the AI service.
+    
+    CRITICAL: Validates content to prevent analyzing placeholder text.
+    """
+    try:
+        # Validate content
+        if not request.content or not request.content.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Content is required and cannot be empty"
+            )
+        
+        # Block placeholder text from being analyzed
+        placeholder_patterns = [
+            "[Content not available",
+            "[content not available",
+            "Content not available",
+            "claim registered externally"
+        ]
+        
+        content_lower = request.content.lower().strip()
+        for pattern in placeholder_patterns:
+            if pattern.lower() in content_lower:
+                print(f"🚫 BLOCKED: Attempt to analyze placeholder text")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot analyze placeholder content. Claim content is not available."
+                )
+        
+        # Minimum content length check
+        if len(request.content.strip()) < 10:
+            raise HTTPException(
+                status_code=400,
+                detail="Content too short for meaningful analysis (minimum 10 characters)"
+            )
+        
+        print(f"\n{'='*60}")
+        print(f"🤖 AI ANALYSIS REQUEST RECEIVED")
+        print(f"{'='*60}")
+        print(f"📝 Content: {request.content[:100]}...")
+        print(f"📝 Content length: {len(request.content)} chars")
+        print(f"✅ Content validation passed")
+        print(f"📤 Sending to Credibility Engine...")
+        
+        # Call Credibility Engine
+        ai_result = await ai_connector.analyze_claim(request.content)
+        
+        print(f"✅ AI Analysis complete")
+        print(f"   Label: {ai_result['ai_label']}")
+        print(f"   Risk Score: {ai_result['risk_score']}")
+        print(f"   Confidence: {ai_result.get('confidence', 'N/A')}")
+        print(f"   Flags: {len(ai_result.get('flags', []))} detected")
+        print(f"{'='*60}\n")
+        
+        # Return AI result
+        return {
+            "success": True,
+            "analysis": {
+                "ai_label": ai_result["ai_label"],
+                "risk_score": ai_result["risk_score"],
+                "summary": ai_result["summary"],
+                "confidence": ai_result.get("confidence"),
+                "flags": ai_result.get("flags"),
+                "sources_found": ai_result.get("sources_found"),
+                "risk_level": ai_result.get("risk_level")
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ AI Analysis failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI analysis failed: {str(e)}"
+        )
 
 
 @router.post("/claims/register")
@@ -196,16 +296,17 @@ async def register_claim_full(raw_request: Request):
         print(f"⚠️  IPFS upload failed (non-blocking): {str(e)}")
         content_cid = None
     
-    # Step 5: Store in registry
+    # Step 5: Store in registry WITH ORIGINAL CONTENT
     print(f"💾 Storing in registry...")
     claim_registry[claim_hash] = {
         "claimHash": claim_hash,
         "contentCID": content_cid,
         "claimSubmitter": request.submitterAddress,
         "blockNumber": block_number,
-        "timestamp": int(time.time())
+        "timestamp": int(time.time()),
+        "newsContent": request.newsContent  # Store original content as fallback
     }
-    print(f"✅ Stored in registry")
+    print(f"✅ Stored in registry with content fallback")
     
     # Step 6: Refresh event cache
     print(f"🔄 Refreshing event cache...")
@@ -262,22 +363,21 @@ async def register_claim_content(request: RegisterClaimRequest):
     try:
         content_cid = await ipfs.upload_to_pinata(claim_content)
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"IPFS upload failed: {str(e)}"
-        )
+        print(f"⚠️  IPFS upload failed (non-blocking): {str(e)}")
+        content_cid = None
     
     # Get current block number
     votes = contract_wrapper.get_votes(claim_hash)
     block_number = votes["block_number"]
     
-    # Store in registry
+    # Store in registry WITH ORIGINAL CONTENT
     claim_registry[claim_hash] = {
         "claimHash": claim_hash,
         "contentCID": content_cid,
         "claimSubmitter": request.submitterAddress or "unknown",
         "blockNumber": block_number,
-        "timestamp": int(time.time())
+        "timestamp": int(time.time()),
+        "newsContent": request.newsContent  # Store original content as fallback
     }
     
     # Refresh event cache to include new claim
@@ -493,7 +593,8 @@ async def get_claim_detail(claim_hash: str, caller_address: Optional[str] = None
                 "contentCID": None,
                 "claimSubmitter": submitter,
                 "blockNumber": votes['block_number'],
-                "timestamp": int(time.time())
+                "timestamp": int(time.time()),
+                "newsContent": None  # No content available for external claims
             }
             
             print(f"✅ Fallback sync complete - minimal entry created")
@@ -541,15 +642,27 @@ async def get_claim_detail(claim_hash: str, caller_address: Optional[str] = None
     claim_metadata = claim_registry[claim_hash]
     content_cid = claim_metadata["contentCID"]
     
-    # Fetch claim text from IPFS if available
+    # Fetch claim text with proper fallback chain: IPFS → Database → Placeholder
     news_content = "[Content not available]"
+    
+    # Try IPFS first if CID exists
     if content_cid:
         try:
             claim_content = await ipfs.fetch_from_pinata(content_cid)
             news_content = claim_content.get("newsContent", "[Content not available]")
+            print(f"✅ Content fetched from IPFS")
         except Exception as e:
-            print(f"⚠️  Failed to fetch content from IPFS: {str(e)}")
-            news_content = "[Content not available - IPFS fetch failed]"
+            print(f"⚠️  IPFS fetch failed: {str(e)}")
+            # Fall through to database fallback
+    
+    # Fallback to stored content in database if IPFS failed or no CID
+    if news_content == "[Content not available]" and claim_metadata.get("newsContent"):
+        news_content = claim_metadata["newsContent"]
+        print(f"✅ Content retrieved from database fallback")
+    
+    # If still no content, use placeholder
+    if news_content == "[Content not available]":
+        print(f"⚠️  No content available from any source")
     
     # Get vote data using wrapper (safe because we checked exists)
     print(f"✅ Fetching votes for existing claim: {claim_hash}")
@@ -588,7 +701,54 @@ async def get_claim_detail(claim_hash: str, caller_address: Optional[str] = None
 @router.get("/claims/{claim_hash}")
 async def get_claim(claim_hash: str):
     """
-    Get claim data from blockchain.
+    Get claim content from backend storage.
+    Returns stored claim text as fallback when IPFS is unavailable.
+    """
+    # Validate hash format
+    if not claim_hash.startswith('0x') or len(claim_hash) != 66:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid hash format. Expected 0x followed by 64 hex characters."
+        )
+    
+    try:
+        bytes.fromhex(claim_hash[2:])
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid hash format. Hash must contain only hexadecimal characters."
+        )
+    
+    # Check if claim exists in registry
+    if claim_hash not in claim_registry:
+        raise HTTPException(
+            status_code=404,
+            detail="Claim not found in backend storage"
+        )
+    
+    claim_metadata = claim_registry[claim_hash]
+    
+    # Return stored content if available
+    if claim_metadata.get("newsContent"):
+        return {
+            "claimHash": claim_hash,
+            "newsContent": claim_metadata["newsContent"],
+            "contentCID": claim_metadata.get("contentCID"),
+            "claimSubmitter": claim_metadata.get("claimSubmitter"),
+            "blockNumber": claim_metadata.get("blockNumber"),
+            "timestamp": claim_metadata.get("timestamp")
+        }
+    else:
+        raise HTTPException(
+            status_code=404,
+            detail="Claim content not available in backend storage"
+        )
+
+
+@router.get("/claims/{claim_hash}/blockchain")
+async def get_claim_blockchain(claim_hash: str):
+    """
+    Get claim data from blockchain only.
     Returns raw vote counts only, no credibility computation.
     """
     # Validate hash format

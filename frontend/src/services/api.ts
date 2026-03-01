@@ -87,6 +87,19 @@ export interface RegisterContentResponse {
   claimSubmitter: string;
 }
 
+export interface AIAnalysisResponse {
+  success: boolean;
+  analysis: {
+    ai_label: string;
+    risk_score: number;
+    summary: string;
+    confidence?: number;
+    flags?: string[];
+    sources_found?: any[];
+    risk_level?: string;
+  };
+}
+
 export const api = {
   /**
    * GET /feed
@@ -158,5 +171,32 @@ export const api = {
   async health(): Promise<{ status: string; service: string }> {
     const response = await fetch(`${API_BASE_URL}/health`);
     return handleResponse(response);
+  },
+
+  /**
+   * GET /claims/{claimHash}
+   * Get stored claim content from backend (fallback when IPFS unavailable)
+   */
+  async getClaimContent(claimHash: string): Promise<{ claimHash: string; newsContent: string; contentCID: string | null }> {
+    const response = await fetch(`${API_BASE_URL}/claims/${claimHash}`);
+    return handleResponse(response);
+  },
+
+  /**
+   * POST /api/ai-analysis
+   * Standalone AI analysis endpoint
+   * Accepts content and returns Credibility Engine analysis
+   */
+  async aiAnalysis(content: string): Promise<AIAnalysisResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/ai-analysis`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content,
+      }),
+    });
+    return handleResponse<AIAnalysisResponse>(response);
   },
 };

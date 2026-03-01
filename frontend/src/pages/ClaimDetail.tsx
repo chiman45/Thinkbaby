@@ -16,25 +16,106 @@ const ClaimDetail = () => {
   const { claimHash } = useParams<{ claimHash: string }>();
   const navigate = useNavigate();
   const { walletAddress, signer, roleInfo, isConnected } = useWallet();
-  const [analyzed, setAnalyzed] = useState(false);
-  const [analysisData, setAnalysisData] = useState<any>(null);
 
   const { data: claimData, isLoading, error, refetch } = useQuery({
-    queryKey: ['claim-detail', claimHash],
+    queryKey: ['claim-detail', claimHash, walletAddress],
     queryFn: () => api.getClaimDetail(claimHash!, walletAddress || undefined),
     enabled: !!claimHash,
+    staleTime: 0, // Always consider data stale
+    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
   });
 
   const analyzeMutation = useMutation({
-    mutationFn: () => api.analyzeClaim(claimHash!, walletAddress || undefined),
+    mutationFn: async () => {
+      // Validate content exists
+      if (!claimData?.newsContent) {
+        throw new Error("No content available for analysis");
+      }
+      
+      const content = claimData.newsContent.trim();
+      
+      // Block placeholder text patterns
+      const placeholderPatterns = [
+        "[Content not available",
+        "[content not available",
+        "Content not available",
+        "claim registered externally"
+      ];
+      
+      const contentLower = content.toLowerCase();
+      const isPlaceholder = placeholderPatterns.some(pattern => 
+        contentLower.includes(pattern.toLowerCase())
+      );
+      
+      if (isPlaceholder) {
+        console.error("🚫 BLOCKED: Placeholder content detected");
+        throw new Error("Claim content unavailable. Cannot analyze.");
+      }
+      
+      // Minimum length check
+      if (content.length < 10) {
+        throw new Error("Content too short for meaningful analysis");
+      }
+      
+      console.log("🔍 Starting AI analysis...");
+      console.log("Content:", content.substring(0, 100) + "...");
+      console.log("Content length:", content.length, "chars");
+      console.log("API URL:", `${import.meta.env.VITE_API_URL}/api/ai-analysis`);
+      
+      // Try to fetch from backend storage if content is placeholder
+      let analysisContent = content;
+      
+      // If content looks like placeholder, try backend fallback
+      if (content.includes("[Content not available]")) {
+        console.log("⚠️  Placeholder detected, attempting backend fallback...");
+        try {
+          const storedClaim = await api.getClaimContent(claimHash!);
+          if (storedClaim.newsContent && storedClaim.newsContent !== content) {
+            analysisContent = storedClaim.newsContent;
+            console.log("✅ Retrieved content from backend storage");
+          } else {
+            throw new Error("No content available in backend storage");
+          }
+        } catch (err) {
+          console.error("❌ Backend fallback failed:", err);
+          throw new Error("Claim content unavailable. Cannot analyze.");
+        }
+      }
+      
+      const result = await api.aiAnalysis(analysisContent);
+      
+      console.log("✅ AI Analysis response received:", result);
+      
+      return result;
+    },
     onSuccess: (data) => {
-      setAnalysisData(data);
-      setAnalyzed(true);
-      toast.success("Analysis complete!");
+      console.log("📊 AI Analysis SUCCESS - data:", data);
+      toast.success("AI Analysis complete!");
     },
     onError: (error: Error) => {
+      console.error("❌ AI Analysis error:", error);
       toast.error(`Analysis failed: ${error.message}`);
     },
+  });
+  
+  // Use mutation data directly instead of local state
+  const analyzed = analyzeMutation.isSuccess;
+  const analysisData = analyzeMutation.data ? {
+    aiOutput: analyzeMutation.data.analysis,
+    snapshotHash: null,
+    snapshotCID: null,
+  } : null;
+  
+  // Debug logging
+  console.log("🔄 ClaimDetail render:", {
+    claimHash,
+    mutationStatus: analyzeMutation.status,
+    analyzed,
+    hasAnalysisData: !!analysisData,
+    hasAiOutput: !!analysisData?.aiOutput,
+    riskScore: analysisData?.aiOutput?.risk_score,
+    fullAnalysisData: analysisData,
+    walletAddress: walletAddress?.slice(0, 10)
   });
 
   const handleVote = async (voteType: 'true' | 'false') => {
@@ -151,12 +232,27 @@ const ClaimDetail = () => {
       console.log("✅ Vote confirmed!");
       console.log(`   Block: ${receipt.blockNumber}`);
       console.log(`   Gas used: ${receipt.gasUsed.toString()}`);
+      
+      // IMMEDIATE: Read votes directly from blockchain to verify
+      console.log("\n🔍 Step 6: Verifying vote on-chain...");
+      const votesAfter = await contract.getVotes(claimHash);
+      const validatorVotesAfter = await contract.getValidatorVotes(claimHash);
+      
+      console.log("📊 RAW ON-CHAIN VALUES AFTER VOTE:");
+      console.log(`   getVotes() returned:`, votesAfter);
+      console.log(`   - trueVotes (index 0):  ${votesAfter[0].toString()}`);
+      console.log(`   - falseVotes (index 1): ${votesAfter[1].toString()}`);
+      console.log(`   getValidatorVotes() returned:`, validatorVotesAfter);
+      console.log(`   - validatorTrueVotes (index 0):  ${validatorVotesAfter[0].toString()}`);
+      console.log(`   - validatorFalseVotes (index 1): ${validatorVotesAfter[1].toString()}`);
       console.log("=".repeat(60) + "\n");
       
       toast.success("Vote recorded on-chain!");
       
-      // Refetch claim data to update vote counts
-      setTimeout(() => refetch(), 2000);
+      // Refetch claim data to update vote counts (immediate, no delay)
+      console.log("🔄 Refetching claim data from backend...");
+      await refetch();
+      console.log("✅ Claim data refreshed");
     } catch (error: any) {
       console.error("\n" + "=".repeat(60));
       console.error("❌ VOTE ERROR");
@@ -216,7 +312,24 @@ const ClaimDetail = () => {
     );
   }
 
-  const displayData = analyzed && analysisData ? analysisData : claimData;
+  // Build display data: Always use fresh claimData, overlay AI analysis if available
+  const displayData = claimData ? {
+    ...claimData,
+    // Overlay AI analysis data if it exists (don't let it get overwritten)
+    ...(analyzed && analysisData ? {
+      aiOutput: analysisData.aiOutput,
+      snapshotHash: analysisData.snapshotHash,
+      snapshotCID: analysisData.snapshotCID,
+    } : {})
+  } : claimData;
+  
+  console.log("📊 Display data check:", {
+    hasClaimData: !!claimData,
+    analyzed,
+    hasAnalysisData: !!analysisData,
+    hasAiOutput: !!(analysisData?.aiOutput),
+    willShowTruthMatrix: !!(analyzed && analysisData)
+  });
   const totalVotes = displayData.userTrueVotes + displayData.userFalseVotes;
   
   // Check if current user is the submitter (normalized address comparison)
@@ -224,6 +337,12 @@ const ClaimDetail = () => {
     walletAddress && 
     displayData.claimSubmitter && 
     walletAddress.toLowerCase() === displayData.claimSubmitter.toLowerCase();
+  
+  // Check if content is available for analysis
+  const isContentAvailable = displayData.newsContent && 
+    !displayData.newsContent.toLowerCase().includes("[content not available") &&
+    !displayData.newsContent.toLowerCase().includes("claim registered externally") &&
+    displayData.newsContent.trim().length >= 10;
 
   return (
     <motion.div
@@ -296,12 +415,27 @@ const ClaimDetail = () => {
                 <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">
                   AI Analysis
                 </h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Run AI analysis to get risk assessment and generate snapshot
-                </p>
+                
+                {!isContentAvailable ? (
+                  <div className="mb-4 p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
+                    <div className="flex items-center gap-2 text-destructive mb-2">
+                      <AlertCircle className="w-4 h-4" />
+                      <p className="text-sm font-semibold">Content Unavailable</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      This claim was registered on-chain but the content was not uploaded to IPFS or stored in the backend. 
+                      AI analysis cannot be performed without claim content.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Run AI analysis to get risk assessment and generate snapshot
+                  </p>
+                )}
+                
                 <Button
                   onClick={() => analyzeMutation.mutate()}
-                  disabled={analyzeMutation.isPending}
+                  disabled={analyzeMutation.isPending || !isContentAvailable}
                   className="w-full gap-2 shimmer-button rounded-xl h-12"
                 >
                   {analyzeMutation.isPending ? (
@@ -312,7 +446,7 @@ const ClaimDetail = () => {
                   ) : (
                     <>
                       <Brain className="w-4 h-4" />
-                      Analyze Claim
+                      {isContentAvailable ? "Analyze Claim" : "Content Not Available"}
                     </>
                   )}
                 </Button>
@@ -330,34 +464,49 @@ const ClaimDetail = () => {
                   exit={{ opacity: 0, x: 30 }}
                   className="space-y-6"
                 >
+                  {(() => {
+                    console.log("🎨 Rendering TruthMatrix with props:", {
+                      aiRiskScore: analysisData.aiOutput.risk_score * 100,
+                      onChainTrue: displayData.userTrueVotes,
+                      onChainFalse: displayData.userFalseVotes,
+                      explanation: analysisData.aiOutput.summary,
+                      confidence: analysisData.aiOutput.confidence,
+                      flags: analysisData.aiOutput.flags,
+                    });
+                    return null;
+                  })()}
                   <TruthMatrix
                     aiRiskScore={analysisData.aiOutput.risk_score * 100}
-                    onChainTrue={analysisData.userTrueVotes}
-                    onChainFalse={analysisData.userFalseVotes}
+                    onChainTrue={displayData.userTrueVotes}
+                    onChainFalse={displayData.userFalseVotes}
                     explanation={analysisData.aiOutput.summary}
+                    confidence={analysisData.aiOutput.confidence}
+                    flags={analysisData.aiOutput.flags}
                   />
 
-                  <div className="glass-card p-8">
-                    <div className="flex items-center gap-2 mb-4">
-                      <Link2 className="w-4 h-4 text-accent" />
-                      <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                        Snapshot Data
-                      </h3>
-                    </div>
-                    <div className="space-y-2 text-xs font-mono">
-                      <p className="text-muted-foreground break-all">
-                        Hash: <span className="text-foreground">{analysisData.snapshotHash}</span>
-                      </p>
-                      {analysisData.snapshotCID && (
+                  {analysisData.snapshotHash && (
+                    <div className="glass-card p-8">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Link2 className="w-4 h-4 text-accent" />
+                        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                          Snapshot Data
+                        </h3>
+                      </div>
+                      <div className="space-y-2 text-xs font-mono">
                         <p className="text-muted-foreground break-all">
-                          CID: <span className="text-foreground">{analysisData.snapshotCID}</span>
+                          Hash: <span className="text-foreground">{analysisData.snapshotHash}</span>
                         </p>
-                      )}
-                      <p className="text-muted-foreground">
-                        AI Label: <span className="text-foreground">{analysisData.aiOutput.ai_label}</span>
-                      </p>
+                        {analysisData.snapshotCID && (
+                          <p className="text-muted-foreground break-all">
+                            CID: <span className="text-foreground">{analysisData.snapshotCID}</span>
+                          </p>
+                        )}
+                        <p className="text-muted-foreground">
+                          AI Label: <span className="text-foreground">{analysisData.aiOutput.ai_label}</span>
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </motion.div>
               ) : (
                 <motion.div

@@ -1,18 +1,18 @@
 # ============================================================
 # TRUTH PROTOCOL - .gitignore
+# Decentralized Fake News Verification System
 # ============================================================
 
 # ============================================================
-# ENVIRONMENT & SECRETS
+# ENVIRONMENT & SECRETS (NEVER COMMIT)
 # ============================================================
 .env
-.env.local
-.env.*.local
+.env.*
 *.env
 backend/.env
 frontend/.env.local
 
-# Private keys (NEVER COMMIT)
+# Private keys
 *.key
 *.pem
 private_key.txt
@@ -27,7 +27,7 @@ ENV/
 .venv/
 backend/venv/
 
-# Byte-compiled / optimized / DLL files
+# Byte-compiled files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -38,56 +38,35 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
 .eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 
-# PyInstaller
-*.manifest
-*.spec
-
-# Unit test / coverage reports
+# Testing / coverage
 htmlcov/
 .tox/
 .coverage
 .coverage.*
 .cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
 .pytest_cache/
+coverage.xml
 
-# Jupyter Notebook
+# Jupyter
 .ipynb_checkpoints
-
-# pyenv
-.python-version
 
 # ============================================================
 # NODE.JS / FRONTEND
 # ============================================================
-# Dependencies
 node_modules/
 frontend/node_modules/
-jspm_packages/
 
-# Production build
-dist/
-build/
+# Production builds
 frontend/dist/
 frontend/build/
+dist/
+build/
 
 # Logs
 logs/
@@ -96,72 +75,34 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Testing
-coverage/
-.nyc_output/
-
-# Misc
-.cache/
-.parcel-cache/
-.next/
-.nuxt/
-.vuepress/dist/
 
 # ============================================================
 # BLOCKCHAIN / WEB3
 # ============================================================
-# Hardhat / Truffle
 artifacts/
 cache/
 typechain/
 typechain-types/
 
-# Contract source (if not needed)
-contracts/
+# ============================================================
+# AI / ML MODELS
+# ============================================================
+*.h5
+*.pkl
+*.model
+models/
 
 # ============================================================
-# TEMPORARY FILES
+# TEMP FILES
 # ============================================================
 *.tmp
 *.temp
 *.swp
 *.swo
 *~
-.DS_Store
-Thumbs.db
 
 # ============================================================
-# VERIFICATION & TEST FILES (cleanup)
-# ============================================================
-verify_*.py
-test_*.py
-*_verification_*.py
-*_test_*.py
-*.test.js
-*.spec.js
-
-# Documentation (generated)
-*_COMPLETE.md
-*_REPORT.md
-*_INSTRUCTIONS.md
-VERIFICATION_*.md
-DEPLOYMENT_*.txt
-
-# ============================================================
-# IDE & EDITOR
+# IDE / EDITORS
 # ============================================================
 .vscode/
 .idea/
@@ -172,29 +113,15 @@ DEPLOYMENT_*.txt
 .settings/
 
 # ============================================================
-# OS
+# OS FILES
 # ============================================================
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 desktop.ini
 
 # ============================================================
-# IPFS / PINATA
+# IPFS
 # ============================================================
-# Local IPFS data
 .ipfs/
-
-# ============================================================
-# AI / ML
-# ============================================================
-*.h5
-*.pkl
-*.model
-models/
 
 # ============================================================

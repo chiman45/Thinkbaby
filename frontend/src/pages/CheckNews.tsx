@@ -115,42 +115,57 @@ const CheckNews = () => {
       
       console.log("✅ Claim does not exist - proceeding with registration");
 
-      // Step 3: Backend-orchestrated registration
-      toast.info("Registering claim via backend...");
+      // Step 3: USER wallet registers claim on-chain
+      toast.info("Registering claim on blockchain...");
       console.log("============================================================");
-      console.log("📤 FRONTEND: Sending registration request to backend");
+      console.log("📤 FRONTEND: User wallet registering claim on-chain");
       console.log("============================================================");
       
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/claims/register`, {
+      const writeContract = new Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+      
+      console.log(`📝 Calling registerClaim(${claimHash})`);
+      const tx = await writeContract.registerClaim(claimHash);
+      console.log(`   Transaction sent: ${tx.hash}`);
+      
+      toast.info("Waiting for blockchain confirmation...");
+      const receipt = await tx.wait();
+      
+      console.log(`✅ Claim registered on-chain`);
+      console.log(`   Block: ${receipt.blockNumber}`);
+      console.log(`   Gas used: ${receipt.gasUsed.toString()}`);
+      
+      // Step 4: Store content in backend
+      toast.info("Storing content...");
+      console.log("📤 Storing content in backend...");
+      
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/claims/register-content`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          claimHash: claimHash,
           newsContent: newsText,
           submitterAddress: walletAddress
         }),
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Registration failed');
+        console.warn("⚠️  Content storage failed (non-blocking)");
+        // Non-blocking - claim is already on-chain
+      } else {
+        const data = await response.json();
+        console.log("✅ Content stored");
+        console.log(`   CID: ${data.contentCID}`);
       }
-
-      const data = await response.json();
       
-      console.log("✅ FRONTEND: Registration complete");
-      console.log("📥 Using claimHash from backend:", data.claimHash);
-      console.log("   Block:", data.blockNumber);
-      console.log("   CID:", data.contentCID);
-      console.log("   Already existed:", data.alreadyExists);
       console.log("============================================================");
       
       toast.success("Claim registered successfully!");
       
-      // Navigate to claim detail page using hash from backend
-      console.log("🔀 Redirecting to:", `/claim/${data.claimHash}`);
-      setTimeout(() => navigate(`/claim/${data.claimHash}`), 1500);
+      // Navigate to claim detail page
+      console.log("🔀 Redirecting to:", `/claim/${claimHash}`);
+      setTimeout(() => navigate(`/claim/${claimHash}`), 1500);
     } catch (error: any) {
       console.error("❌ Registration error:", error);
       toast.error(error.message || "Registration failed");
