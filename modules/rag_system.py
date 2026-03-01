@@ -5,6 +5,7 @@ Hackathon-optimized: Fast setup with ChromaDB + Sentence Transformers
 
 import json
 import os
+import csv
 from typing import List, Dict, Optional
 import chromadb
 from chromadb.config import Settings
@@ -18,11 +19,15 @@ class GovernmentRecordRAG:
     def __init__(self, data_path: str = "data/government_records.json"):
         """Initialize RAG system with ChromaDB and sentence transformer"""
         
-        # Initialize ChromaDB (in-memory for fast hackathon demo)
-        self.client = chromadb.Client(Settings(
-            anonymized_telemetry=False,
-            allow_reset=True
-        ))
+        # Initialize ChromaDB with persistent storage
+        self.chroma_path = "chroma_db"
+        self.client = chromadb.PersistentClient(
+            path=self.chroma_path,
+            settings=Settings(
+                anonymized_telemetry=False,
+                allow_reset=True
+            )
+        )
         
         # Create or get collection
         self.collection = self.client.get_or_create_collection(
@@ -41,14 +46,28 @@ class GovernmentRecordRAG:
         print("RAG system initialized!")
     
     def load_records(self) -> int:
-        """Load government records from JSON file"""
+        """Load government records from JSON or CSV file"""
         
         if not os.path.exists(self.data_path):
             print(f"⚠️  Data file not found: {self.data_path}")
             return 0
         
-        with open(self.data_path, 'r') as f:
-            self.records = json.load(f)
+        # Check file extension
+        file_ext = os.path.splitext(self.data_path)[1].lower()
+        
+        if file_ext == '.csv':
+            # Load CSV file
+            with open(self.data_path, 'r', encoding='utf-8') as f:
+                csv_reader = csv.DictReader(f)
+                self.records = []
+                for idx, row in enumerate(csv_reader):
+                    # Create a record with ID
+                    record = {"id": f"scheme_{idx}", **row}
+                    self.records.append(record)
+        else:
+            # Load JSON file (original behavior)
+            with open(self.data_path, 'r') as f:
+                self.records = json.load(f)
         
         print(f"✅ Loaded {len(self.records)} government records")
         
@@ -58,49 +77,79 @@ class GovernmentRecordRAG:
         return len(self.records)
     
     def _index_records(self):
-        """Create embeddings and store in ChromaDB"""
+        """Create embeddings and store in ChromaDB with batching"""
         
         if not self.records:
             print("⚠️  No records to index")
             return
         
-        # Prepare data for ChromaDB
-        documents = []
-        metadatas = []
-        ids = []
+        # Check if already indexed (persistent storage)
+        existing_count = self.collection.count()
+        if existing_count >= len(self.records):
+            print(f"✅ Using cached embeddings ({existing_count} records already indexed)")
+            return
         
-        for record in self.records:
-            # Create text representation for embedding
-            doc_text = self._record_to_text(record)
-            documents.append(doc_text)
+        print(f"📊 Indexing {len(self.records)} records in batches...")
+        
+        # Process in batches for better performance
+        BATCH_SIZE = 200
+        total_batches = (len(self.records) + BATCH_SIZE - 1) // BATCH_SIZE
+        
+        for batch_num in range(0, len(self.records), BATCH_SIZE):
+            batch_records = self.records[batch_num:batch_num + BATCH_SIZE]
             
-            # Store metadata
-            metadatas.append({
-                "type": record.get("type", "unknown"),
-                "full_name": record.get("full_name", ""),
-                "status": record.get("status", ""),
-            })
+            documents = []
+            metadatas = []
+            ids = []
             
-            ids.append(record["id"])
+            for record in batch_records:
+                # Create text representation for embedding
+                doc_text = self._record_to_text(record)
+                documents.append(doc_text)
+                
+                # Store metadata (handle both CSV and JSON formats)
+                metadatas.append({
+                    "type": record.get("type") or record.get("schemeCategory", "scheme"),
+                    "full_name": record.get("full_name") or record.get("scheme_name", ""),
+                    "status": record.get("status") or record.get("level", ""),
+                })
+                
+                ids.append(record["id"])
+            
+            # Generate embeddings for this batch
+            print(f"  ⏳ Batch {(batch_num // BATCH_SIZE) + 1}/{total_batches}: Encoding {len(documents)} records...")
+            embeddings = self.embedding_model.encode(documents, show_progress_bar=False).tolist()
+            
+            # Add to ChromaDB
+            self.collection.add(
+                embeddings=embeddings,
+                documents=documents,
+                metadatas=metadatas,
+                ids=ids
+            )
+            
+            print(f"  ✅ Batch {(batch_num // BATCH_SIZE) + 1}/{total_batches} complete")
         
-        # Add to ChromaDB (it handles embeddings automatically, but we use custom model)
-        embeddings = self.embedding_model.encode(documents).tolist()
-        
-        self.collection.add(
-            embeddings=embeddings,
-            documents=documents,
-            metadatas=metadatas,
-            ids=ids
-        )
-        
-        print(f"✅ Indexed {len(documents)} records into vector database")
+        print(f"✅ Indexed {len(self.records)} records into vector database")
     
     def _record_to_text(self, record: Dict) -> str:
         """Convert record to searchable text"""
         
-        # Create rich text representation
-        parts = []
+        # For CSV government schemes, prioritize key fields
+        if "scheme_name" in record:
+            # Government scheme format
+            parts = []
+            important_fields = ["scheme_name", "details", "benefits", "eligibility", "tags"]
+            for field in important_fields:
+                value = record.get(field, "")
+                if value and str(value).strip():
+                    # Limit each field to 500 chars
+                    value_str = str(value)[:500]
+                    parts.append(f"{field}: {value_str}")
+            return " | ".join(parts)
         
+        # For JSON records, use original logic
+        parts = []
         for key, value in record.items():
             if key != "id" and value:
                 if isinstance(value, list):

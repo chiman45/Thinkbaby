@@ -125,3 +125,6 @@ desktop.ini
 .ipfs/
 
 # ============================================================
+
+echo chroma_db/ >> .gitignore
+echo rti_filings.json >> .gitignore

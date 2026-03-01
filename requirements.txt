@@ -31,7 +31,7 @@ razorpay==1.4.2
 # HTTP Clients
 # ============================
 requests==2.31.0
-httpx==0.26.0
+httpx==0.28.1  # Python 3.13 compatible
 
 # ============================
 # Environment & Config
@@ -45,6 +45,31 @@ pydantic-settings==2.1.0
 # ============================
 chromadb==0.4.22
 sentence-transformers==2.3.1
+
+# ============================
+# Web Scraping
+# ============================
+beautifulsoup4==4.12.3
+lxml==5.1.0
+googlesearch-python==1.2.3
+
+# ============================
+# AI Integration
+# ============================
+google-genai>=1.59.0  # New package (replaces deprecated google-generativeai)
+
+# ============================
+# Multilingual Support
+# ============================
+langdetect==1.0.9
+deep-translator==1.11.4
+
+# ============================
+# Voice Message Support
+# ============================
+SpeechRecognition==3.14.5  # Python 3.13 compatible (includes aifc compatibility)
+pydub==0.25.1
+openai-whisper==20231117
 
 # ============================
 # Testing (Optional Dev)

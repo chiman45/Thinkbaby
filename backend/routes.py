@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, validator
-from typing import Optional
+from typing import Optional, Dict, Any
 import contract_wrapper
 import ai_connector
 import ipfs
@@ -8,6 +8,12 @@ from utils import hash_claim
 from service_layer import generate_snapshot_hash
 import event_indexer
 import time
+import sys
+import os
+
+# Add parent directory to path to import credibility_engine
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from credibility_engine import CredibilityEngine
 
 
 router = APIRouter()
@@ -16,6 +22,9 @@ router = APIRouter()
 # In-memory storage for IPFS CIDs (backward compatibility)
 # Maps claimHash -> CID and metadata
 claim_registry = {}
+
+# Initialize Credibility Engine
+credibility_engine = CredibilityEngine()
 
 
 class ClaimRequest(BaseModel):
@@ -63,6 +72,23 @@ class RegisterClaimFullRequest(BaseModel):
 class AnalyzeRequest(BaseModel):
     claimHash: str
     callerAddress: Optional[str] = None
+
+
+class CredibilityCheckRequest(BaseModel):
+    claim: str
+    source_url: Optional[str] = None
+    rag_context: Optional[str] = None
+    web_context: Optional[str] = None
+    votes_data: Optional[Dict[str, Any]] = None
+    
+    @validator('claim')
+    def validate_claim(cls, v):
+        stripped = v.strip()
+        if len(stripped) < 5:
+            raise ValueError("Claim must be at least 5 characters")
+        if len(v) > 10000:
+            raise ValueError("Claim too long (max 10,000 characters)")
+        return stripped
 
 
 @router.post("/claims/register")
@@ -334,10 +360,25 @@ async def analyze_claim_endpoint(request: AnalyzeRequest):
     validator_votes = contract_wrapper.get_validator_votes(claim_hash)
     block_number = user_votes["block_number"]
     
-    # 5. Get AI analysis (claim text only)
-    ai_output = await ai_connector.analyze_claim(news_content)
+    # 5. Prepare votes data for credibility engine
+    votes_data = {
+        "user_votes": {
+            "true": user_votes["true_votes"],
+            "false": user_votes["false_votes"]
+        },
+        "validator_votes": {
+            "true": validator_votes["true_votes"],
+            "false": validator_votes["false_votes"]
+        }
+    }
     
-    # 6. Build snapshot (no credibility, no finalStatus)
+    # 6. Get AI analysis from credibility engine (includes votes analysis)
+    ai_output = await ai_connector.analyze_claim(
+        text=news_content,
+        votes_data=votes_data
+    )
+    
+    # 7. Build snapshot (no credibility, no finalStatus)
     snapshot = {
         "claimHash": claim_hash,
         "newsContent": news_content,
@@ -620,6 +661,63 @@ async def get_claim(claim_hash: str):
         "validator_false_votes": validator_votes["false_votes"],
         "block_number": user_votes["block_number"]
     }
+
+
+@router.post("/credibility/check")
+async def check_credibility(request: CredibilityCheckRequest):
+    """
+    Check credibility of a claim using the Credibility Engine.
+    
+    This endpoint analyzes a claim using multiple scoring layers:
+    - Source credibility
+    - Linguistic patterns (clickbait, urgency, etc.)
+    - Numerical anomalies
+    - RAG database match
+    - Temporal analysis
+    - Community votes
+    
+    Returns a comprehensive credibility report with:
+    - Final score (0-1)
+    - Verdict (TRUE/FALSE/UNCERTAIN/UNVERIFIED/BREAKING)
+    - Risk level (low/medium/high/critical)
+    - Detailed explanation and flags
+    """
+    try:
+        print(f"\n🔍 Credibility Check Request:")
+        print(f"   Claim: {request.claim[:100]}...")
+        print(f"   Source URL: {request.source_url}")
+        
+        # Call credibility engine
+        result = await credibility_engine.score(
+            claim=request.claim,
+            source_url=request.source_url,
+            rag_context=request.rag_context,
+            web_context=request.web_context,
+            votes_data=request.votes_data
+        )
+        
+        # Convert to JSON
+        response_data = result.to_json()
+        
+        print(f"✅ Credibility Check Complete:")
+        print(f"   Verdict: {response_data['verdict']}")
+        print(f"   Score: {response_data['final_score']:.0%}")
+        print(f"   Risk: {response_data['risk_level']}")
+        
+        return response_data
+        
+    except ValueError as ve:
+        print(f"❌ Validation error: {ve}")
+        raise HTTPException(
+            status_code=400,
+            detail=str(ve)
+        )
+    except Exception as e:
+        print(f"❌ Credibility check error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to check credibility: {str(e)}"
+        )
 
 
 @router.get("/health")
