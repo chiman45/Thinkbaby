@@ -10,15 +10,16 @@ interface VoteButtonsProps {
   onVoteFalse: () => void;
   trueVotes?: number;
   falseVotes?: number;
+  disabled?: boolean;
 }
 
-const VoteButtons = ({ onVoteTrue, onVoteFalse, trueVotes = 0, falseVotes = 0 }: VoteButtonsProps) => {
+const VoteButtons = ({ onVoteTrue, onVoteFalse, trueVotes = 0, falseVotes = 0, disabled = false }: VoteButtonsProps) => {
   const [voting, setVoting] = useState<"true" | "false" | null>(null);
   const [voted, setVoted] = useState<"true" | "false" | null>(null);
   const { roleInfo } = useWallet();
 
   const handleVote = async (type: "true" | "false") => {
-    if (voted) return;
+    if (voted || disabled) return;
     setVoting(type);
     await new Promise((r) => setTimeout(r, 1500));
     type === "true" ? onVoteTrue() : onVoteFalse();
@@ -42,7 +43,7 @@ const VoteButtons = ({ onVoteTrue, onVoteFalse, trueVotes = 0, falseVotes = 0 }:
           variant="outline"
           size="sm"
           onClick={() => handleVote("true")}
-          disabled={voting !== null || voted !== null}
+          disabled={voting !== null || voted !== null || disabled}
           className={`gap-2 rounded-xl transition-all duration-300 ${
             voted === "true"
               ? "bg-success/20 text-success border-success/40"
@@ -66,7 +67,7 @@ const VoteButtons = ({ onVoteTrue, onVoteFalse, trueVotes = 0, falseVotes = 0 }:
           variant="outline"
           size="sm"
           onClick={() => handleVote("false")}
-          disabled={voting !== null || voted !== null}
+          disabled={voting !== null || voted !== null || disabled}
           className={`gap-2 rounded-xl transition-all duration-300 ${
             voted === "false"
               ? "bg-destructive/20 text-destructive border-destructive/40"

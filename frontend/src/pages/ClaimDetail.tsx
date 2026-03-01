@@ -46,64 +46,129 @@ const ClaimDetail = () => {
     try {
       const contract = new Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
       
-      // Step 1: Check if user is registered
-      console.log("🔍 Checking role before voting...");
-      const roleRaw = await contract.getRole(walletAddress);
-      const role = Number(roleRaw);
+      console.log("\n" + "=".repeat(60));
+      console.log("🗳️  VOTING PROCESS STARTED");
+      console.log("=".repeat(60));
+      console.log(`📋 Claim Hash: ${claimHash}`);
+      console.log(`👤 Voter Address: ${walletAddress}`);
+      console.log(`✅ Vote Type: ${voteType}`);
       
-      console.log("   Role:", role);
+      // Step 1: Fetch role FRESH from chain (don't trust cache)
+      console.log("\n🔍 Step 1: Fetching role from blockchain...");
+      const roleFromChain = await contract.getRole(walletAddress);
+      const role = Number(roleFromChain);
+      
+      console.log(`🔥 REAL ROLE FROM CHAIN: ${role}`);
+      console.log(`   0 = None, 1 = User, 2 = Validator`);
       
       if (role === 0) {
+        console.log("❌ Role is 0 (None) - not registered");
         toast.error("Please register as User or Validator before voting.");
         return;
       }
       
-      console.log("✅ Role check passed");
+      console.log(`✅ Role check passed - Role ${role} can vote`);
       
-      // Step 2: Check if already voted
-      console.log("🔍 Checking if already voted...");
+      // Step 2: Check if submitter (cannot vote on own claim)
+      console.log("\n🔍 Step 2: Checking if voter is submitter...");
+      const submitter = await contract.getClaimSubmitter(claimHash);
+      console.log(`   Submitter (raw):      ${submitter}`);
+      console.log(`   Voter (raw):          ${walletAddress}`);
+      console.log(`   Submitter (lower):    ${submitter.toLowerCase()}`);
+      console.log(`   Voter (lower):        ${walletAddress.toLowerCase()}`);
+      
+      // Defensive check with normalized addresses
+      if (submitter.toLowerCase() === walletAddress.toLowerCase()) {
+        console.log("🚫 SUBMITTER CANNOT VOTE - Blocking transaction");
+        toast.error("You cannot vote on your own claim.");
+        return;
+      }
+      
+      console.log("✅ Voter is NOT submitter - can proceed");
+      
+      // Step 3: Verify claim exists on-chain
+      console.log("\n🔍 Step 3: Verifying claim exists on-chain...");
+      const claimExists = await contract.claimExists(claimHash);
+      console.log(`   Claim exists: ${claimExists}`);
+      
+      if (!claimExists) {
+        console.log("❌ Claim does not exist on-chain");
+        toast.error("Claim not found on blockchain.");
+        return;
+      }
+      
+      console.log("✅ Claim exists - can proceed");
+      
+      // Step 4: Check if already voted
+      console.log("\n🔍 Step 4: Checking if already voted...");
       const hasVoted = await contract.hasAddressVoted(claimHash, walletAddress);
+      console.log(`   Has voted: ${hasVoted}`);
       
       if (hasVoted) {
+        console.log("❌ Already voted on this claim");
         toast.error("You have already voted on this claim.");
         return;
       }
       
-      console.log("✅ Has not voted yet - proceeding");
+      console.log("✅ Has not voted yet - can proceed");
 
+      // Step 5: Select correct vote function based on FRESH on-chain role
+      console.log("\n📝 Step 5: Submitting vote transaction...");
+      console.log(`   Role: ${role}`);
+      console.log(`   Vote: ${voteType}`);
+      
       toast.info("Submitting vote transaction...");
       
-      // Step 3: Submit vote based on role
       let tx;
-      if (role === 2) {
-        // Validator voting
-        console.log(`📝 Validator voting ${voteType}...`);
-        tx = voteType === 'true' 
-          ? await contract.voteTrueValid(claimHash)
-          : await contract.voteFalseValid(claimHash);
-      } else if (role === 1) {
-        // Regular user voting
-        console.log(`📝 User voting ${voteType}...`);
+      let functionName;
+      
+      if (role === 1) {
+        // User voting
+        functionName = voteType === 'true' ? 'voteTrue()' : 'voteFalse()';
+        console.log(`   Using User function: ${functionName}`);
         tx = voteType === 'true' 
           ? await contract.voteTrue(claimHash)
           : await contract.voteFalse(claimHash);
+      } else if (role === 2) {
+        // Validator voting
+        functionName = voteType === 'true' ? 'voteTrueValid()' : 'voteFalseValid()';
+        console.log(`   Using Validator function: ${functionName}`);
+        tx = voteType === 'true' 
+          ? await contract.voteTrueValid(claimHash)
+          : await contract.voteFalseValid(claimHash);
       } else {
+        console.log(`❌ Invalid role: ${role}`);
         toast.error("Invalid role for voting.");
         return;
       }
 
-      console.log("📝 Transaction sent:", tx.hash);
+      console.log(`✅ Transaction sent: ${tx.hash}`);
+      console.log(`   Function called: ${functionName}`);
       
       toast.info("Waiting for confirmation...");
-      await tx.wait();
+      const receipt = await tx.wait();
 
-      console.log("✅ Vote confirmed");
+      console.log("✅ Vote confirmed!");
+      console.log(`   Block: ${receipt.blockNumber}`);
+      console.log(`   Gas used: ${receipt.gasUsed.toString()}`);
+      console.log("=".repeat(60) + "\n");
+      
       toast.success("Vote recorded on-chain!");
       
       // Refetch claim data to update vote counts
       setTimeout(() => refetch(), 2000);
     } catch (error: any) {
-      console.error("❌ Vote error:", error);
+      console.error("\n" + "=".repeat(60));
+      console.error("❌ VOTE ERROR");
+      console.error("=".repeat(60));
+      console.error("Error:", error);
+      console.error("Error message:", error.message);
+      console.error("Error code:", error.code);
+      if (error.data) {
+        console.error("Error data:", error.data);
+      }
+      console.error("=".repeat(60) + "\n");
+      
       toast.error(error.message || "Vote failed");
     }
   };
@@ -124,11 +189,26 @@ const ClaimDetail = () => {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Feed
           </Button>
-          <div className="glass-card p-8 flex items-center gap-4 text-destructive">
-            <AlertCircle className="w-5 h-5" />
-            <div>
-              <p className="font-semibold">Failed to load claim</p>
-              <p className="text-sm text-muted-foreground">{error?.message || "Claim not found"}</p>
+          <div className="glass-card p-8">
+            <div className="flex items-center gap-4 text-destructive mb-4">
+              <AlertCircle className="w-5 h-5" />
+              <div>
+                <p className="font-semibold">Failed to load claim</p>
+                <p className="text-sm text-muted-foreground">{error?.message || "Claim not found"}</p>
+              </div>
+            </div>
+            <div className="mt-6 p-4 bg-muted/50 rounded-lg border border-border">
+              <p className="text-sm text-muted-foreground">
+                This claim may not be indexed by the backend yet. Possible reasons:
+              </p>
+              <ul className="mt-2 text-sm text-muted-foreground list-disc list-inside space-y-1">
+                <li>Claim was just registered (wait for indexing)</li>
+                <li>Content was not uploaded to IPFS</li>
+                <li>Backend is out of sync with blockchain</li>
+              </ul>
+              <p className="mt-4 text-sm text-warning">
+                ⚠️ Cannot vote on claims that are not indexed by backend.
+              </p>
             </div>
           </div>
         </div>
@@ -138,6 +218,12 @@ const ClaimDetail = () => {
 
   const displayData = analyzed && analysisData ? analysisData : claimData;
   const totalVotes = displayData.userTrueVotes + displayData.userFalseVotes;
+  
+  // Check if current user is the submitter (normalized address comparison)
+  const isSubmitter = 
+    walletAddress && 
+    displayData.claimSubmitter && 
+    walletAddress.toLowerCase() === displayData.claimSubmitter.toLowerCase();
 
   return (
     <motion.div
@@ -177,15 +263,26 @@ const ClaimDetail = () => {
               <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">
                 Cast Your Vote
               </h3>
+              
+              {isSubmitter && (
+                <div className="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                  <p className="text-sm text-warning">
+                    🚫 You cannot vote on your own claim
+                  </p>
+                </div>
+              )}
+              
               <VoteButtons
                 onVoteTrue={() => handleVote('true')}
                 onVoteFalse={() => handleVote('false')}
                 trueVotes={displayData.userTrueVotes}
                 falseVotes={displayData.userFalseVotes}
+                disabled={isSubmitter || displayData.hasVoted}
               />
               <div className="mt-4 text-xs text-muted-foreground">
                 <p>Total votes: {totalVotes}</p>
                 {displayData.hasVoted && <p className="text-accent">You have already voted</p>}
+                {isSubmitter && <p className="text-warning">You are the submitter of this claim</p>}
               </div>
             </div>
 
